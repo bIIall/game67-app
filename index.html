@@ -320,7 +320,7 @@ button{font-family:inherit;}
 // ═══════════════════════════════════════════════════════════════════
 const WS_URL = window.location.hostname === 'localhost'
   ? 'ws://localhost:3000'
-  : 'wss://game67-server-production-62a2.up.railway.app';  // ← ЗАМЕНИТЕ
+  : 'wss://ВАША_ССЫЛКА.railway.app';  // ← ЗАМЕНИТЕ
 
 // ═══════════════════════════════════════════════════════════════════
 // HELPERS
@@ -431,27 +431,67 @@ const G = {
   },
 
   // ── WS ────────────────────────────────────────────────────────
-connect(cb){
+  setStatus(txt){
+    const el = document.getElementById('clbl');
+    if(el) el.textContent = txt;
+    console.log('[67]', txt);
+  },
+
+  connect(cb){
     if(this.ws){ try{this.ws.close();}catch(e){} this.ws=null; }
     showScr('sconn');
+    this.setStatus('Подключение к серверу...');
+
     let ws;
     try {
       ws = new WebSocket(WS_URL);
     } catch(e) {
-      toast('Не удалось подключиться к серверу'); showScr('slobby'); return;
+      this.setStatus('Ошибка: ' + e.message);
+      setTimeout(()=>showScr('slobby'), 2500);
+      return;
     }
     this.ws = ws;
-    ws.onopen = ()=>{ cb(ws); };
-    ws.onmessage = e=>{ try{ this.onMsg(JSON.parse(e.data)); }catch(err){ console.error(err); } };
-    ws.onerror = (e)=>{ console.error('WS error',e); toast('Ошибка соединения'); showScr('slobby'); };
+
+    // Таймаут — если за 8 секунд нет onopen, показываем ошибку
+    const connTimer = setTimeout(()=>{
+      if(ws.readyState !== 1){
+        this.setStatus('Нет ответа от сервера (таймаут)');
+        try{ws.close();}catch(e){}
+        setTimeout(()=>showScr('slobby'), 2500);
+      }
+    }, 8000);
+
+    ws.onopen = ()=>{
+      clearTimeout(connTimer);
+      this.setStatus('Соединение установлено');
+      cb(ws);
+    };
+
+    ws.onmessage = e=>{
+      try{ this.onMsg(JSON.parse(e.data)); }
+      catch(err){ console.error('[67] parse error', err); }
+    };
+
+    ws.onerror = (e)=>{
+      clearTimeout(connTimer);
+      this.setStatus('Ошибка соединения — проверьте интернет');
+      console.error('[67] WS error', e);
+      setTimeout(()=>showScr('slobby'), 2500);
+    };
+
     ws.onclose = (e)=>{
-      console.log('WS closed', e.code, e.reason);
+      clearTimeout(connTimer);
+      console.log('[67] WS closed code='+e.code+' reason='+e.reason);
       if(this.st?.phase==='playing') toast('Соединение потеряно');
     };
   },
 
   send(obj){
-    if(this.ws?.readyState===1) this.ws.send(JSON.stringify(obj));
+    if(this.ws?.readyState===1){
+      this.ws.send(JSON.stringify(obj));
+    } else {
+      console.warn('[67] send skipped, ws state=', this.ws?.readyState);
+    }
   },
 
   // ── MESSAGES ──────────────────────────────────────────────────
@@ -492,18 +532,10 @@ connect(cb){
   },
 
   // ── LOBBY / SEARCH ────────────────────────────────────────────
-search(){
+  search(){
     this.connect(ws=>{
-      document.getElementById('clbl').textContent='Поиск комнаты...';
-      // Небольшая задержка — Telegram WebApp иногда не успевает открыть соединение
-      const doJoin = () => {
-        if(ws.readyState === 1){
-          ws.send(JSON.stringify({type:'join', userId:this.userId, name:this.userName}));
-        } else {
-          setTimeout(doJoin, 100);
-        }
-      };
-      doJoin();
+      this.setStatus('Поиск комнаты...');
+      ws.send(JSON.stringify({type:'join', userId:this.userId, name:this.userName}));
     });
   },
 
