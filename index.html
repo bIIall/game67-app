@@ -431,15 +431,23 @@ const G = {
   },
 
   // ── WS ────────────────────────────────────────────────────────
-  connect(cb){
-    if(this.ws){ this.ws.close(); this.ws=null; }
+connect(cb){
+    if(this.ws){ try{this.ws.close();}catch(e){} this.ws=null; }
     showScr('sconn');
-    const ws = new WebSocket(WS_URL);
+    let ws;
+    try {
+      ws = new WebSocket(WS_URL);
+    } catch(e) {
+      toast('Не удалось подключиться к серверу'); showScr('slobby'); return;
+    }
     this.ws = ws;
-    ws.onopen = ()=>cb(ws);
-    ws.onmessage = e=>this.onMsg(JSON.parse(e.data));
-    ws.onerror = ()=>toast('Ошибка соединения');
-    ws.onclose = ()=>{ if(this.st?.phase==='playing') toast('Соединение потеряно'); };
+    ws.onopen = ()=>{ cb(ws); };
+    ws.onmessage = e=>{ try{ this.onMsg(JSON.parse(e.data)); }catch(err){ console.error(err); } };
+    ws.onerror = (e)=>{ console.error('WS error',e); toast('Ошибка соединения'); showScr('slobby'); };
+    ws.onclose = (e)=>{
+      console.log('WS closed', e.code, e.reason);
+      if(this.st?.phase==='playing') toast('Соединение потеряно');
+    };
   },
 
   send(obj){
@@ -484,10 +492,18 @@ const G = {
   },
 
   // ── LOBBY / SEARCH ────────────────────────────────────────────
-  search(){
+search(){
     this.connect(ws=>{
       document.getElementById('clbl').textContent='Поиск комнаты...';
-      ws.send(JSON.stringify({type:'join', userId:this.userId, name:this.userName}));
+      // Небольшая задержка — Telegram WebApp иногда не успевает открыть соединение
+      const doJoin = () => {
+        if(ws.readyState === 1){
+          ws.send(JSON.stringify({type:'join', userId:this.userId, name:this.userName}));
+        } else {
+          setTimeout(doJoin, 100);
+        }
+      };
+      doJoin();
     });
   },
 
